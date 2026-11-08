@@ -3,11 +3,14 @@ import pandas as pd
 from supabase import create_client, Client
 import datetime
 
-# CONFIGURACIÓN DE PÁGINA (ESTILO INGECONSPRO)
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE PÁGINA Y TEMA
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Control de Costos - INGECONSPRO",
     page_icon="🏗️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # CONEXIÓN SEGURA A SUPABASE
@@ -19,75 +22,164 @@ def init_connection():
 
 supabase = init_connection()
 
-# ESTILOS CSS PERSONALIZADOS (DARK GLASSmorphism)
+# -----------------------------------------------------------------------------
+# ESTILOS CSS AVANZADOS (REPLICANDO INDEX.HTML ORIGINAL)
+# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-    .main { background: linear-gradient(135deg, #090d16 0%, #111827 50%, #0f172a 100%); }
-    .stMetric { background: rgba(17, 24, 39, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); padding: 15px; border-radius: 12px; }
-    h1, h2, h3, h4 { color: #f3f4f6; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    .stApp {
+        background: linear-gradient(135deg, #090d16 0%, #111827 50%, #0f172a 100%) !important;
+        color: #f3f4f6;
+    }
+    
+    /* GLASS CARDS PARA KPIs */
+    .glass-card {
+        background: rgba(17, 24, 39, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+    }
+    
+    /* BORDES DE KPI POR TIPO */
+    .kpi-presupuesto { border-left: 5px solid #3b82f6 !important; }
+    .kpi-costo-real { border-left: 5px solid #f43f5e !important; }
+    .kpi-proyeccion { border-left: 5px solid #06b6d4 !important; }
+    .kpi-utilidad { border-left: 5px solid #10b981 !important; }
+    
+    .kpi-title {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #9ca3af;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    
+    .kpi-value {
+        font-size: 1.6rem;
+        font-weight: 800;
+        margin: 0;
+    }
+    
+    /* BADGES DE ESTADO EN APU */
+    .badge-margen {
+        background-color: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    
+    .badge-sobrecosto {
+        background-color: rgba(244, 63, 94, 0.15);
+        color: #f43f5e;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    /* BARRA LATERAL ESTILIZADA */
+    [data-testid="stSidebar"] {
+        background: rgba(15, 23, 42, 0.95) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# BARRA LATERAL: SELECTOR DE PROYECTO GLOBAL
+# FUNCIONES DE FORMATO DE MONEDA Y NÚMEROS (COP)
 # -----------------------------------------------------------------------------
-st.sidebar.image("https://lh3.googleusercontent.com/d/1GGsI4a9bvY2McOuHmj8NlFC_Vx0HA8VV", width=50)
-st.sidebar.title("INGECONSPRO S.A.S.")
-st.sidebar.caption("Control de Costos Multiproyecto")
+def fmt_cop(val):
+    try:
+        return f"$ {val:,.0f}".replace(",", ".")
+    except:
+        return "$ 0"
+
+def fmt_num(val, dec=2):
+    try:
+        return f"{val:,.{dec}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0"
+
+# -----------------------------------------------------------------------------
+# BARRA LATERAL: LOGO Y SELECTOR GLOBAL DE PROYECTO
+# -----------------------------------------------------------------------------
+st.sidebar.image("https://lh3.googleusercontent.com/d/1GGsI4a9bvY2McOuHmj8NlFC_Vx0HA8VV", width=140)
+st.sidebar.markdown("## **INGECONSPRO S.A.S.**")
+st.sidebar.caption("Control Operativo & Financiero")
 
 # Cargar lista de proyectos
 res_proyectos = supabase.table("proyectos").select("*").execute()
 df_proyectos = pd.DataFrame(res_proyectos.data)
 
 if df_proyectos.empty:
-    st.error("No hay proyectos registrados. Crea uno en el menú lateral.")
+    st.error("No hay proyectos en la base de datos.")
     st.stop()
 
-# Dropdown global de selección de obra
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### **PROYECTO ACTIVO**")
 proyecto_seleccionado = st.sidebar.selectbox(
-    "🏗️ SELECCIONAR PROYECTO ACTIVO:",
+    "Selecciona la obra a consultar:",
     options=df_proyectos["nombre"].tolist(),
     index=0
 )
 
-# Obtener ID del proyecto activo
 id_proyecto_activo = df_proyectos[df_proyectos["nombre"] == proyecto_seleccionado]["id_proyecto"].values[0]
 
-# Pestañas de Navegación
-menu = st.sidebar.radio("Navegación:", [
+st.sidebar.markdown("---")
+menu = st.sidebar.radio("Navegación Módulos:", [
     "📊 Dashboard & Presupuesto", 
-    "📥 Cargar / Importar Presupuesto",
-    "🚚 Proveedores", 
+    "📥 Importar Presupuesto",
     "🧾 Ingreso de Costos", 
     "📐 Registrar Avances", 
+    "🚚 Proveedores", 
     "➕ Crear Nuevo Proyecto"
 ])
 
 # -----------------------------------------------------------------------------
-# MÓDULO 1: DASHBOARD & CONSOLIDADO DE PRESUPUESTO
+# MÓDULO 1: DASHBOARD CON TARJETAS GLASSMORPHISM Y TABLAS ESTILIZADAS
 # -----------------------------------------------------------------------------
 if menu == "📊 Dashboard & Presupuesto":
-    st.title(f"Dashboard - {proyecto_seleccionado}")
+    st.markdown(f"### 🏗️ Obra Activa: **{proyecto_seleccionado}**")
+    st.caption("Resumen Ejecutivo Base vs. Costos Reales")
     
-    # Cargar actividades del proyecto activo
+    # Cargar actividades
     pres = supabase.table("presupuesto").select("*").eq("id_proyecto", id_proyecto_activo).execute()
     df_pres = pd.DataFrame(pres.data)
     
     if df_pres.empty:
-        st.warning(f"El proyecto '{proyecto_seleccionado}' aún no tiene actividades en su presupuesto. Ve al menú '📥 Cargar / Importar Presupuesto' para subir el despiece en Excel/CSV.")
+        st.warning(f"El proyecto '{proyecto_seleccionado}' aún no tiene actividades en su presupuesto. Dirígete a '📥 Importar Presupuesto' para cargar su archivo CSV/Excel.")
     else:
-        # Cargar compras del proyecto
+        # Cargar Compras y Avances
         comp = supabase.table("compras").select("*").eq("id_proyecto", id_proyecto_activo).execute()
         df_comp = pd.DataFrame(comp.data)
         
-        # Cargar avances del proyecto
         avan = supabase.table("avances").select("*").eq("id_proyecto", id_proyecto_activo).execute()
         df_avan = pd.DataFrame(avan.data)
         
-        # CÁLCULOS FINANCIEROS (APU REAL)
-        costo_real_map = df_comp.groupby("id_actividad")["cantidad"].apply(lambda x: (x * df_comp.loc[x.index, "precio_unitario"]).sum()).to_dict() if not df_comp.empty else {}
-        cant_ejec_map = df_avan.groupby("id_actividad")["cant_ejecutada"].sum().to_dict() if not df_avan.empty else {}
-        
+        # Cálculos de Costo Real y Cantidad Ejecutada
+        costo_real_map = {}
+        if not df_comp.empty:
+            df_comp["val_total"] = df_comp["cantidad"] * df_comp["precio_unitario"]
+            costo_real_map = df_comp.groupby("id_actividad")["val_total"].sum().to_dict()
+            
+        cant_ejec_map = {}
+        if not df_avan.empty:
+            cant_ejec_map = df_avan.groupby("id_actividad")["cant_ejecutada"].sum().to_dict()
+            
         df_pres["cant_pres"] = df_pres["cant_pres"].astype(float)
         df_pres["apu_pres"] = df_pres["apu_pres"].astype(float)
         df_pres["total_pres"] = df_pres["cant_pres"] * df_pres["apu_pres"]
@@ -102,37 +194,89 @@ if menu == "📊 Dashboard & Presupuesto":
         df_pres["utilidad"] = df_pres["total_pres"] - df_pres["proyeccion"]
         df_pres["estado"] = df_pres.apply(lambda r: "Sobrecosto en APU" if r["apu_real"] > r["apu_pres"] else ("Pérdida Proyectada" if r["utilidad"] < 0 else "En Margen"), axis=1)
         
-        # KPIs SUPERIORES
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Presupuesto Total", f"${df_pres['total_pres'].sum():,.0f}")
-        col2.metric("Costo Real Ejecutado", f"${df_pres['costo_real'].sum():,.0f}")
-        col3.metric("Costo Proyectado", f"${df_pres['proyeccion'].sum():,.0f}")
-        col4.metric("Utilidad Estimada", f"${df_pres['utilidad'].sum():,.0f}", delta=f"${df_pres['utilidad'].sum():,.0f}")
+        # TARJETAS DE INDICADORES EN CSS GLASSMORPHISM
+        tot_pres = df_pres['total_pres'].sum()
+        tot_real = df_pres['costo_real'].sum()
+        tot_proy = df_pres['proyeccion'].sum()
+        tot_util = df_pres['utilidad'].sum()
         
-        st.subheader("Consolidado General de Actividades")
+        k1, k2, k3, k4 = st.columns(4)
+        
+        with k1:
+            st.markdown(f"""
+            <div class="glass-card kpi-presupuesto">
+                <div class="kpi-title">PRESUPUESTO TOTAL</div>
+                <div class="kpi-value" style="color:#3b82f6;">{fmt_cop(tot_pres)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with k2:
+            st.markdown(f"""
+            <div class="glass-card kpi-costo-real">
+                <div class="kpi-title">COSTO REAL EJECUTADO</div>
+                <div class="kpi-value" style="color:#f43f5e;">{fmt_cop(tot_real)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with k3:
+            st.markdown(f"""
+            <div class="glass-card kpi-proyeccion">
+                <div class="kpi-title">COSTO PROYECTADO</div>
+                <div class="kpi-value" style="color:#06b6d4;">{fmt_cop(tot_proy)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with k4:
+            color_u = "#10b981" if tot_util >= 0 else "#f43f5e"
+            st.markdown(f"""
+            <div class="glass-card kpi-utilidad">
+                <div class="kpi-title">UTILIDAD PROYECTADA</div>
+                <div class="kpi-value" style="color:{color_u};">{fmt_cop(tot_util)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("Auditoría de APU y Consolidado de Actividades")
+        
+        # FORMATEAR TABLA PARA INTERFAZ LIMPIA
+        df_ver = df_pres.copy()
+        df_ver["Cant. Pres."] = df_ver["cant_pres"].apply(lambda v: fmt_num(v, 2))
+        df_ver["APU Pres."] = df_ver["apu_pres"].apply(fmt_cop)
+        df_ver["Total Pres."] = df_ver["total_pres"].apply(fmt_cop)
+        df_ver["Costo Real"] = df_ver["costo_real"].apply(fmt_cop)
+        df_ver["Cant. Ejec."] = df_ver["cant_ejec"].apply(lambda v: fmt_num(v, 2))
+        df_ver["APU Real"] = df_ver["apu_real"].apply(fmt_cop)
+        df_ver["Proyección"] = df_ver["proyeccion"].apply(fmt_cop)
+        df_ver["Utilidad"] = df_ver["utilidad"].apply(fmt_cop)
+        
+        columnas_renombradas = {
+            "codigo_item": "Ítem",
+            "capitulo": "Capítulo",
+            "descripcion": "Descripción",
+            "unidad": "Unidad",
+            "estado": "Estado APU"
+        }
+        
         st.dataframe(
-            df_pres[["codigo_item", "capitulo", "descripcion", "unidad", "cant_pres", "apu_pres", "total_pres", "costo_real", "cant_ejec", "apu_real", "proyeccion", "utilidad", "estado"]],
-            use_container_width=True
+            df_ver.rename(columns=columnas_renombradas)[[
+                "Ítem", "Capítulo", "Descripción", "Unidad", 
+                "Cant. Pres.", "APU Pres.", "Total Pres.", 
+                "Costo Real", "Cant. Ejec.", "APU Real", 
+                "Proyección", "Utilidad", "Estado APU"
+            ]],
+            use_container_width=True,
+            hide_index=True
         )
 
 # -----------------------------------------------------------------------------
-# MÓDULO NUEVO: CARGAR / IMPORTAR PRESUPUESTO AL PROYECTO ACTIVO
+# MÓDULO 2: IMPORTAR PRESUPUESTO AL PROYECTO ACTIVO
 # -----------------------------------------------------------------------------
-elif menu == "📥 Cargar / Importar Presupuesto":
+elif menu == "📥 Importar Presupuesto":
     st.title(f"Importar Presupuesto a: {proyecto_seleccionado}")
     
-    st.info("Sube un archivo Excel (.xlsx) o CSV con el listado de actividades del proyecto.")
-    st.markdown("""
-    **Estructura obligatoria de columnas en el archivo:**
-    - `codigo_item` (Ej: 1.1, 1.2, 2.1)
-    - `capitulo` (Ej: Estructura, Cubierta, Acabados)
-    - `descripcion` (Ej: Suministro de perfil W10x30)
-    - `unidad` (Ej: m2, kg, ml, gl)
-    - `cant_pres` (Cantidad presupuestada)
-    - `apu_pres` (Valor unitario o APU)
-    """)
+    st.info("Carga el archivo CSV o Excel generado con las actividades de la obra.")
     
-    archivo = st.file_uploader("Seleccionar archivo Excel o CSV", type=["xlsx", "csv"])
+    archivo = st.file_uploader("Seleccionar archivo (CSV o XLSX)", type=["csv", "xlsx"])
     
     if archivo is not None:
         try:
@@ -141,24 +285,28 @@ elif menu == "📥 Cargar / Importar Presupuesto":
             else:
                 df_cargado = pd.read_excel(archivo)
             
-            st.subheader("Vista previa de los datos a importar:")
-            st.dataframe(df_cargado.head(10), use_container_width=True)
+            st.markdown("#### Vista previa de los datos a cargar:")
+            st.dataframe(df_cargado.head(10), use_container_width=True, hide_index=True)
             
-            if st.button("💾 Confirmar e Importar Presupuesto"):
+            if st.button("💾 Cargar Presupuesto a la Obra Activa", type="primary"):
                 df_cargado["id_proyecto"] = int(id_proyecto_activo)
                 datos_insertar = df_cargado[["id_proyecto", "codigo_item", "capitulo", "descripcion", "unidad", "cant_pres", "apu_pres"]].to_dict(orient="records")
                 
+                # Limpiar presupuesto previo si existe
+                supabase.table("presupuesto").delete().eq("id_proyecto", id_proyecto_activo).execute()
+                
+                # Insertar nuevos ítems
                 supabase.table("presupuesto").insert(datos_insertar).execute()
-                st.success(f"¡Se importaron {len(datos_insertar)} actividades al proyecto {proyecto_seleccionado} correctamente!")
+                st.success(f"¡Se importaron {len(datos_insertar)} actividades correctamente a {proyecto_seleccionado}!")
                 st.rerun()
         except Exception as e:
-            st.error(f"Error al procesar el archivo. Revisa que los nombres de las columnas sean exactos. Detalle: {e}")
+            st.error(f"Error al leer el archivo. Asegúrate de usar la plantilla descargada. Detalle: {e}")
 
 # -----------------------------------------------------------------------------
-# MÓDULO 3: INGRESO DE COSTOS Y FACTURAS
+# MÓDULO 3: INGRESO DE COSTOS (FACTURAS)
 # -----------------------------------------------------------------------------
 elif menu == "🧾 Ingreso de Costos":
-    st.title(f"Ingreso de Facturas - Obra: {proyecto_seleccionado}")
+    st.title(f"Imputación de Costos - Obra: {proyecto_seleccionado}")
     
     pres = supabase.table("presupuesto").select("id_actividad, codigo_item, descripcion").eq("id_proyecto", id_proyecto_activo).execute()
     df_act = pd.DataFrame(pres.data)
@@ -166,93 +314,81 @@ elif menu == "🧾 Ingreso de Costos":
     prov = supabase.table("proveedores").select("id_proveedor, nombre").execute()
     df_prov = pd.DataFrame(prov.data)
     
-    if df_act.empty or df_prov.empty:
-        st.warning("Debes tener actividades en el presupuesto e importar proveedores antes de registrar facturas.")
+    if df_act.empty:
+        st.warning("Debes cargar primero el presupuesto de esta obra antes de ingresar facturas.")
     else:
-        with st.form("form_factura", clear_on_submit=True):
-            col1, col2, col3 = st.columns(3)
-            fecha = col1.date_input("Fecha", datetime.date.today())
-            num_factura = col2.text_input("Número de Factura / Remisión")
-            proveedor_nombre = col3.selectbox("Proveedor", df_prov["nombre"].tolist())
+        with st.form("form_facturas", clear_on_submit=True):
+            st.markdown("##### **1. Encabezado del Documento**")
+            f1, f2, f3 = st.columns(3)
+            fecha_fac = f1.date_input("Fecha de Factura", datetime.date.today())
+            num_fac = f2.text_input("Número de Factura / Remisión", placeholder="Ej: F-1045")
             
-            st.markdown("---")
-            act_desc = st.selectbox("Actividad de Obra Imputada:", df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']}", axis=1))
+            prov_list = df_prov["nombre"].tolist() if not df_prov.empty else ["Sin Proveedores"]
+            prov_nom = f3.selectbox("Proveedor", prov_list)
             
-            c1, c2, c3 = st.columns(3)
-            tipo_costo = c1.selectbox("Tipo de Costo", ["Materiales", "Mano de Obra", "Equipos", "Subcontratos"])
-            insumo = c2.text_input("Descripción del Insumo", placeholder="Ej: Aceros W10x30")
-            cantidad = c3.number_input("Cantidad", min_value=0.01, step=1.0)
+            st.markdown("##### **2. Asignación de Costo a Actividad Presupuestada**")
+            act_opciones = df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']}", axis=1).tolist()
+            act_sel = st.selectbox("Actividad de Obra Target:", act_opciones)
             
-            precio_unitario = st.number_input("Precio Unitario ($)", min_value=1.0, step=100.0)
+            c1, c2, c3, c4 = st.columns(4)
+            tipo_c = c1.selectbox("Tipo de Costo", ["Materiales", "Mano de Obra", "Equipos", "Subcontratos"])
+            insumo_desc = c2.text_input("Descripción Insumo", placeholder="Ej: Perfil Estructural W10")
+            cant_ing = c3.number_input("Cantidad Insumo", min_value=0.001, step=1.0)
+            precio_u = c4.number_input("Precio Unitario ($)", min_value=1.0, step=100.0)
             
-            if st.form_submit_button("💾 Guardar Compra"):
-                id_actividad_sel = df_act.iloc[df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']}", axis=1).tolist().index(act_desc)]["id_actividad"]
-                id_prov_sel = df_prov[df_prov["nombre"] == proveedor_nombre]["id_proveedor"].values[0]
+            val_total_calc = cant_ing * precio_u
+            st.markdown(f"**Total Línea:** `{fmt_cop(val_total_calc)}`")
+            
+            btn_save = st.form_submit_button("💾 Registar Costo en Obra", type="primary")
+            
+            if btn_save:
+                idx = act_opciones.index(act_sel)
+                id_act_target = df_act.iloc[idx]["id_actividad"]
+                id_prov_target = df_prov[df_prov["nombre"] == prov_nom]["id_proveedor"].values[0] if not df_prov.empty else None
                 
-                datos = {
+                datos_compra = {
                     "id_proyecto": int(id_proyecto_activo),
-                    "fecha": str(fecha),
-                    "id_proveedor": int(id_prov_sel),
-                    "num_factura": num_factura,
-                    "id_actividad": int(id_actividad_sel),
-                    "insumo": insumo,
-                    "tipo_costo": tipo_costo,
-                    "cantidad": float(cantidad),
-                    "precio_unitario": float(precio_unitario)
+                    "fecha": str(fecha_fac),
+                    "id_proveedor": int(id_prov_target) if id_prov_target else None,
+                    "num_factura": num_fac,
+                    "id_actividad": int(id_act_target),
+                    "insumo": insumo_desc,
+                    "tipo_costo": tipo_c,
+                    "cantidad": float(cant_ing),
+                    "precio_unitario": float(precio_u)
                 }
-                supabase.table("compras").insert(datos).execute()
-                st.success("Factura registrada exitosamente.")
+                supabase.table("compras").insert(datos_compra).execute()
+                st.success("Costo asignado y guardado correctamente.")
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# MÓDULO 4: PROVEEDORES
-# -----------------------------------------------------------------------------
-elif menu == "🚚 Proveedores":
-    st.title("Gestión de Proveedores Centralizada")
-    
-    with st.expander("➕ Registrar Nuevo Proveedor"):
-        with st.form("form_prov", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            nit = col1.text_input("NIT / Cédula")
-            nombre = col2.text_input("Nombre / Razón Social")
-            tel = col1.text_input("Teléfono")
-            dir = col2.text_input("Dirección")
-            contacto = st.text_input("Nombre de Contacto")
-            
-            if st.form_submit_button("Guardar Proveedor"):
-                supabase.table("proveedores").insert({
-                    "nit": nit, "nombre": nombre, "telefono": tel, "direccion": dir, "contacto": contacto
-                }).execute()
-                st.success("Proveedor creado con éxito.")
-                st.rerun()
-                
-    prov_res = supabase.table("proveedores").select("*").execute()
-    st.dataframe(pd.DataFrame(prov_res.data), use_container_width=True)
-
-# -----------------------------------------------------------------------------
-# MÓDULO 5: REGISTRAR AVANCES
+# MÓDULO 4: REGISTRAR AVANCES DE OBRA
 # -----------------------------------------------------------------------------
 elif menu == "📐 Registrar Avances":
-    st.title(f"Avances de Obra - {proyecto_seleccionado}")
+    st.title(f"Avances Físicos - Obra: {proyecto_seleccionado}")
     
     pres = supabase.table("presupuesto").select("id_actividad, codigo_item, descripcion, unidad").eq("id_proyecto", id_proyecto_activo).execute()
     df_act = pd.DataFrame(pres.data)
     
     if not df_act.empty:
-        with st.form("form_avance", clear_on_submit=True):
-            fecha_av = st.date_input("Fecha del Avance", datetime.date.today())
-            act_sel = st.selectbox("Actividad", df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']} ({r['unidad']})", axis=1))
-            cant_ejec = st.number_input("Cantidad Ejecutada en el Periodo", min_value=0.01, step=0.1)
-            memoria = st.text_area("Memoria de Cálculo / Localización (Ej: Eje A 1-5)")
+        with st.form("form_avances", clear_on_submit=True):
+            col_f, col_a = st.columns([1, 3])
+            fecha_av = col_f.date_input("Fecha Reporte", datetime.date.today())
             
-            if st.form_submit_button("💾 Guardar Avance"):
-                idx = df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']} ({r['unidad']})", axis=1).tolist().index(act_sel)
-                id_act = df_act.iloc[idx]["id_actividad"]
+            act_opciones = df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']} ({r['unidad']})", axis=1).tolist()
+            act_sel = col_a.selectbox("Actividad Ejecutada:", act_opciones)
+            
+            cant_ejec = st.number_input("Cantidad Ejecutada en el Periodo", min_value=0.001, step=0.1)
+            memoria = st.text_area("Memoria de Cálculo / Ubicación (Ej: Tramo Eje 1-3, Piso 4)", placeholder="Desglose de dimensiones...")
+            
+            if st.form_submit_button("💾 Guardar Avance Físico", type="primary"):
+                idx = act_opciones.index(act_sel)
+                id_act_target = df_act.iloc[idx]["id_actividad"]
                 
                 supabase.table("avances").insert({
                     "id_proyecto": int(id_proyecto_activo),
                     "fecha": str(fecha_av),
-                    "id_actividad": int(id_act),
+                    "id_actividad": int(id_act_target),
                     "cant_ejecutada": float(cant_ejec),
                     "memoria_detalle": memoria
                 }).execute()
@@ -260,19 +396,45 @@ elif menu == "📐 Registrar Avances":
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# MÓDULO 6: CREAR NUEVO PROYECTO
+# MÓDULO 5: PROVEEDORES
+# -----------------------------------------------------------------------------
+elif menu == "🚚 Proveedores":
+    st.title("Directorio Comercial de Proveedores")
+    
+    with st.expander("➕ Registrar Nuevo Proveedor"):
+        with st.form("form_prov_new", clear_on_submit=True):
+            p1, p2 = st.columns(2)
+            nit = p1.text_input("NIT / Cédula")
+            nombre = p2.text_input("Razón Social")
+            tel = p1.text_input("Teléfono")
+            dir_p = p2.text_input("Dirección")
+            contacto = st.text_input("Nombre de Contacto")
+            
+            if st.form_submit_button("Guardar Proveedor", type="primary"):
+                supabase.table("proveedores").insert({
+                    "nit": nit, "nombre": nombre, "telefono": tel, "direccion": dir_p, "contacto": contacto
+                }).execute()
+                st.success("Proveedor creado con éxito.")
+                st.rerun()
+                
+    prov_res = supabase.table("proveedores").select("*").execute()
+    if prov_res.data:
+        st.dataframe(pd.DataFrame(prov_res.data)[["nit", "nombre", "telefono", "direccion", "contacto"]], use_container_width=True, hide_index=True)
+
+# -----------------------------------------------------------------------------
+# MÓDULO 6: CREAR PROYECTO
 # -----------------------------------------------------------------------------
 elif menu == "➕ Crear Nuevo Proyecto":
-    st.title("Crear Nueva Obra")
+    st.title("Crear Nuevo Proyecto en la Firma")
     
-    with st.form("form_nuevo_proyecto"):
-        nombre_obra = st.text_input("Nombre de la Obra (Ej: Boreal / Palo de Agua)")
-        cliente = st.text_input("Cliente / Entidad")
+    with st.form("form_new_proy", clear_on_submit=True):
+        nom_obra = st.text_input("Nombre del Proyecto / Obra (Ej: Boreal, Torres de San Mateo)")
+        cli_obra = st.text_input("Cliente / Constructora / Entidad")
         
-        if st.form_submit_button("🚀 Crear Proyecto"):
-            if nombre_obra:
-                supabase.table("proyectos").insert({"nombre": nombre_obra, "cliente": cliente}).execute()
-                st.success(f"¡Proyecto '{nombre_obra}' creado exitosamente!")
+        if st.form_submit_button("🚀 Crear Proyecto", type="primary"):
+            if nom_obra:
+                supabase.table("proyectos").insert({"nombre": nom_obra, "cliente": cli_obra}).execute()
+                st.success(f"¡Proyecto '{nom_obra}' registrado en el sistema!")
                 st.rerun()
             else:
                 st.error("Ingresa el nombre del proyecto.")
