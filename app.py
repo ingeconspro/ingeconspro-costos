@@ -56,6 +56,7 @@ id_proyecto_activo = df_proyectos[df_proyectos["nombre"] == proyecto_seleccionad
 # Pestañas de Navegación
 menu = st.sidebar.radio("Navegación:", [
     "📊 Dashboard & Presupuesto", 
+    "📥 Cargar / Importar Presupuesto",
     "🚚 Proveedores", 
     "🧾 Ingreso de Costos", 
     "📐 Registrar Avances", 
@@ -73,7 +74,7 @@ if menu == "📊 Dashboard & Presupuesto":
     df_pres = pd.DataFrame(pres.data)
     
     if df_pres.empty:
-        st.warning("Este proyecto no tiene actividades cargadas en su presupuesto.")
+        st.warning(f"El proyecto '{proyecto_seleccionado}' aún no tiene actividades en su presupuesto. Ve al menú '📥 Cargar / Importar Presupuesto' para subir el despiece en Excel/CSV.")
     else:
         # Cargar compras del proyecto
         comp = supabase.table("compras").select("*").eq("id_proyecto", id_proyecto_activo).execute()
@@ -104,32 +105,69 @@ if menu == "📊 Dashboard & Presupuesto":
         # KPIs SUPERIORES
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Presupuesto Total", f"${df_pres['total_pres'].sum():,.0f}")
-        col2.metric("Costo Real Ejecutado", f"${df_pres['costo_real'].sum():,.0f}", delta_color="inverse")
+        col2.metric("Costo Real Ejecutado", f"${df_pres['costo_real'].sum():,.0f}")
         col3.metric("Costo Proyectado", f"${df_pres['proyeccion'].sum():,.0f}")
-        col4.metric("Utilidad Estimada", f"${df_pres['utilidad'].sum():,.0f}", delta=f"{df_pres['utilidad'].sum():,.0f}")
+        col4.metric("Utilidad Estimada", f"${df_pres['utilidad'].sum():,.0f}", delta=f"${df_pres['utilidad'].sum():,.0f}")
         
         st.subheader("Consolidado General de Actividades")
         st.dataframe(
-            df_pres[["codigo_item", "descripcion", "unidad", "cant_pres", "apu_pres", "total_pres", "costo_real", "cant_ejec", "apu_real", "proyeccion", "utilidad", "estado"]],
+            df_pres[["codigo_item", "capitulo", "descripcion", "unidad", "cant_pres", "apu_pres", "total_pres", "costo_real", "cant_ejec", "apu_real", "proyeccion", "utilidad", "estado"]],
             use_container_width=True
         )
 
 # -----------------------------------------------------------------------------
-# MÓDULO 2: INGRESO DE COSTOS Y FACTURAS
+# MÓDULO NUEVO: CARGAR / IMPORTAR PRESUPUESTO AL PROYECTO ACTIVO
+# -----------------------------------------------------------------------------
+elif menu == "📥 Cargar / Importar Presupuesto":
+    st.title(f"Importar Presupuesto a: {proyecto_seleccionado}")
+    
+    st.info("Sube un archivo Excel (.xlsx) o CSV con el listado de actividades del proyecto.")
+    st.markdown("""
+    **Estructura obligatoria de columnas en el archivo:**
+    - `codigo_item` (Ej: 1.1, 1.2, 2.1)
+    - `capitulo` (Ej: Estructura, Cubierta, Acabados)
+    - `descripcion` (Ej: Suministro de perfil W10x30)
+    - `unidad` (Ej: m2, kg, ml, gl)
+    - `cant_pres` (Cantidad presupuestada)
+    - `apu_pres` (Valor unitario o APU)
+    """)
+    
+    archivo = st.file_uploader("Seleccionar archivo Excel o CSV", type=["xlsx", "csv"])
+    
+    if archivo is not None:
+        try:
+            if archivo.name.endswith(".csv"):
+                df_cargado = pd.read_csv(archivo)
+            else:
+                df_cargado = pd.read_excel(archivo)
+            
+            st.subheader("Vista previa de los datos a importar:")
+            st.dataframe(df_cargado.head(10), use_container_width=True)
+            
+            if st.button("💾 Confirmar e Importar Presupuesto"):
+                df_cargado["id_proyecto"] = int(id_proyecto_activo)
+                datos_insertar = df_cargado[["id_proyecto", "codigo_item", "capitulo", "descripcion", "unidad", "cant_pres", "apu_pres"]].to_dict(orient="records")
+                
+                supabase.table("presupuesto").insert(datos_insertar).execute()
+                st.success(f"¡Se importaron {len(datos_insertar)} actividades al proyecto {proyecto_seleccionado} correctamente!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error al procesar el archivo. Revisa que los nombres de las columnas sean exactos. Detalle: {e}")
+
+# -----------------------------------------------------------------------------
+# MÓDULO 3: INGRESO DE COSTOS Y FACTURAS
 # -----------------------------------------------------------------------------
 elif menu == "🧾 Ingreso de Costos":
     st.title(f"Ingreso de Facturas - Obra: {proyecto_seleccionado}")
     
-    # Cargar actividades para el dropdown
     pres = supabase.table("presupuesto").select("id_actividad, codigo_item, descripcion").eq("id_proyecto", id_proyecto_activo).execute()
     df_act = pd.DataFrame(pres.data)
     
-    # Cargar proveedores
     prov = supabase.table("proveedores").select("id_proveedor, nombre").execute()
     df_prov = pd.DataFrame(prov.data)
     
     if df_act.empty or df_prov.empty:
-        st.warning("Debes tener actividades en el presupuesto y proveedores registrados para ingresar facturas.")
+        st.warning("Debes tener actividades en el presupuesto e importar proveedores antes de registrar facturas.")
     else:
         with st.form("form_factura", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -145,11 +183,9 @@ elif menu == "🧾 Ingreso de Costos":
             insumo = c2.text_input("Descripción del Insumo", placeholder="Ej: Aceros W10x30")
             cantidad = c3.number_input("Cantidad", min_value=0.01, step=1.0)
             
-            precio_unitario = st.number_input("Precio Unitario con IVA ($)", min_value=1.0, step=100.0)
+            precio_unitario = st.number_input("Precio Unitario ($)", min_value=1.0, step=100.0)
             
-            submitted = st.form_submit_button("💾 Guardar Compra")
-            
-            if submitted:
+            if st.form_submit_button("💾 Guardar Compra"):
                 id_actividad_sel = df_act.iloc[df_act.apply(lambda r: f"{r['codigo_item']} - {r['descripcion']}", axis=1).tolist().index(act_desc)]["id_actividad"]
                 id_prov_sel = df_prov[df_prov["nombre"] == proveedor_nombre]["id_proveedor"].values[0]
                 
@@ -169,7 +205,7 @@ elif menu == "🧾 Ingreso de Costos":
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# MÓDULO 3: PROVEEDORES
+# MÓDULO 4: PROVEEDORES
 # -----------------------------------------------------------------------------
 elif menu == "🚚 Proveedores":
     st.title("Gestión de Proveedores Centralizada")
@@ -194,7 +230,7 @@ elif menu == "🚚 Proveedores":
     st.dataframe(pd.DataFrame(prov_res.data), use_container_width=True)
 
 # -----------------------------------------------------------------------------
-# MÓDULO 4: REGISTRAR AVANCES
+# MÓDULO 5: REGISTRAR AVANCES
 # -----------------------------------------------------------------------------
 elif menu == "📐 Registrar Avances":
     st.title(f"Avances de Obra - {proyecto_seleccionado}")
@@ -224,37 +260,19 @@ elif menu == "📐 Registrar Avances":
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# MÓDULO 5: CREAR NUEVO PROYECTO Y CARGAR PRESUPUESTO
+# MÓDULO 6: CREAR NUEVO PROYECTO
 # -----------------------------------------------------------------------------
 elif menu == "➕ Crear Nuevo Proyecto":
-    st.title("Crear Nueva Obra y Cargar Presupuesto")
+    st.title("Crear Nueva Obra")
     
     with st.form("form_nuevo_proyecto"):
         nombre_obra = st.text_input("Nombre de la Obra (Ej: Boreal / Palo de Agua)")
         cliente = st.text_input("Cliente / Entidad")
-        st.subheader("Cargar Archivo de Presupuesto (CSV / Excel)")
-        st.caption("Columnas requeridas en el archivo: codigo_item, capitulo, descripcion, unidad, cant_pres, apu_pres")
-        archivo_presupuesto = st.file_uploader("Subir Presupuesto", type=["csv", "xlsx"])
         
-        if st.form_submit_button("🚀 Crear Proyecto y Cargar Datos"):
-            if nombre_obra and archivo_presupuesto:
-                # 1. Crear proyecto
-                p_res = supabase.table("proyectos").insert({"nombre": nombre_obra, "cliente": cliente}).execute()
-                nuevo_id_proy = p_res.data[0]["id_proyecto"]
-                
-                # 2. Leer archivo
-                if archivo_presupuesto.name.endswith(".csv"):
-                    df_upload = pd.read_csv(archivo_presupuesto)
-                else:
-                    df_upload = pd.read_excel(archivo_presupuesto)
-                
-                # 3. Preparar filas
-                df_upload["id_proyecto"] = nuevo_id_proy
-                datos_insertar = df_upload[["id_proyecto", "codigo_item", "capitulo", "descripcion", "unidad", "cant_pres", "apu_pres"]].to_dict(orient="records")
-                
-                # 4. Insertar actividades
-                supabase.table("presupuesto").insert(datos_insertar).execute()
-                st.success(f"¡Proyecto '{nombre_obra}' creado exitosamente con {len(datos_insertar)} actividades!")
+        if st.form_submit_button("🚀 Crear Proyecto"):
+            if nombre_obra:
+                supabase.table("proyectos").insert({"nombre": nombre_obra, "cliente": cliente}).execute()
+                st.success(f"¡Proyecto '{nombre_obra}' creado exitosamente!")
                 st.rerun()
             else:
-                st.error("Ingresa el nombre del proyecto y sube un archivo válido.")
+                st.error("Ingresa el nombre del proyecto.")
